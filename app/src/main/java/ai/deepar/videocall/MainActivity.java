@@ -43,7 +43,7 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         deepAR = new DeepAR(this);
-        deepAR.setLicenseKey("7c17ba03d0cd2397334a3fade787b42ac13265bd4a325f0778553649399b28dfa5f9db02080c2d1c");
+        deepAR.setLicenseKey("your_deepar_license_here");
         deepAR.initialize(this, this);
         setContentView(R.layout.activity_main);
         callInProgress = false;
@@ -209,7 +209,7 @@ public class MainActivity extends PermissionsActivity implements AREventListener
 
     private void initializeEngine() {
         try {
-            mRtcEngine = RtcEngine.create(getBaseContext(), "91ba75957b7648ce8287e0d23baa41a8", mRtcEventHandler);
+            mRtcEngine = RtcEngine.create(getBaseContext(), "your_agora_app_id_here", mRtcEventHandler);
         } catch (Exception e) {
             Log.e(TAG, Log.getStackTraceString(e));
             throw new RuntimeException("NEED TO check rtc sdk init fatal error\n" + Log.getStackTraceString(e));
