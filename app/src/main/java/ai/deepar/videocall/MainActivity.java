@@ -43,7 +43,7 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         deepAR = new DeepAR(this);
-        deepAR.setLicenseKey("your_deepar_license_here");
+        deepAR.setLicenseKey("your_license_key_goes_here");
         deepAR.initialize(this, this);
         setContentView(R.layout.activity_main);
         callInProgress = false;
@@ -102,7 +102,6 @@ public class MainActivity extends PermissionsActivity implements AREventListener
         FrameLayout local = findViewById(R.id.localPreview);
         local.addView(surfaceView);
 
-        mRtcEngine.setupLocalVideo(new VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_HIDDEN, 0));
         final Button btn = findViewById(R.id.startCall);
         mRtcEngine.setExternalVideoSource(true, true, true);
         btn.setOnClickListener(new View.OnClickListener() {
