@@ -1,5 +1,6 @@
 package ai.deepar.videocall;
 
+import ai.deepar.ar.ARErrorType;
 import ai.deepar.ar.AREventListener;
 import ai.deepar.ar.DeepAR;
 import io.agora.rtc.Constants;
@@ -10,13 +11,17 @@ import io.agora.rtc.video.VideoEncoderConfiguration;
 
 import android.Manifest;
 import android.graphics.Bitmap;
+import android.media.Image;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import java.util.Arrays;
 import java.util.List;
@@ -31,6 +36,8 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     private RtcEngine mRtcEngine;
     private boolean callInProgress;
 
+    private FrameLayout remoteViewContainer;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,6 +47,7 @@ public class MainActivity extends PermissionsActivity implements AREventListener
         deepAR.initialize(this, this);
         setContentView(R.layout.activity_main);
         callInProgress = false;
+        remoteViewContainer = (FrameLayout) findViewById(R.id.remote_video_view_container);
     }
 
     @Override
@@ -95,12 +103,13 @@ public class MainActivity extends PermissionsActivity implements AREventListener
         local.addView(surfaceView);
 
         final Button btn = findViewById(R.id.startCall);
-
+        mRtcEngine.setExternalVideoSource(true, true, true);
         btn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (callInProgress) {
                     callInProgress = false;
+                    renderer.setCallInProgress(false);
                     mRtcEngine.leaveChannel();
                     onRemoteUserLeft();
                     btn.setText("Start the call");
@@ -111,6 +120,12 @@ public class MainActivity extends PermissionsActivity implements AREventListener
                 }
             }
         });
+    }
+
+    void setRemoteViewWeight(float weight) {
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) remoteViewContainer.getLayoutParams();
+        params.weight = weight;
+        remoteViewContainer.setLayoutParams(params);
     }
 
     @Override
@@ -209,7 +224,9 @@ public class MainActivity extends PermissionsActivity implements AREventListener
         // Please go to this page for detailed explanation
         // https://docs.agora.io/en/Video/API%20Reference/java/classio_1_1agora_1_1rtc_1_1_rtc_engine.html#af5f4de754e2c1f493096641c5c5c1d8f
         mRtcEngine.setVideoEncoderConfiguration(new VideoEncoderConfiguration(
-                VideoEncoderConfiguration.VD_640x360,
+                // Agora seems to work best with "Square" resolutions (Aspect Ratio 1:1)
+                // At least when used in combination with DeepAR
+                VideoEncoderConfiguration.VD_480x480,
                 VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15,
                 VideoEncoderConfiguration.STANDARD_BITRATE,
                 VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_FIXED_PORTRAIT));
@@ -224,21 +241,24 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     }
 
     private void setupRemoteVideo(int uid) {
-        FrameLayout container = (FrameLayout) findViewById(R.id.remote_video_view_container);
 
-        if (container.getChildCount() >= 1) {
+        if (remoteViewContainer.getChildCount() >= 1) {
             return;
         }
+        setRemoteViewWeight(1.f);
 
         SurfaceView surfaceView = RtcEngine.CreateRendererView(getBaseContext());
-        container.addView(surfaceView);
-        mRtcEngine.setupRemoteVideo(new VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_ADAPTIVE, uid));
+        remoteViewContainer.addView(surfaceView);
+
+        mRtcEngine.setupRemoteVideo(new VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_HIDDEN, uid));
         surfaceView.setTag(uid);
     }
 
     private void onRemoteUserLeft() {
-        FrameLayout container = findViewById(R.id.remote_video_view_container);
-        container.removeAllViews();
+
+        remoteViewContainer.removeAllViews();
+        setRemoteViewWeight(0.f);
+
     }
 
     @Override
@@ -287,7 +307,12 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     }
 
     @Override
-    public void error(String s) {
+    public void frameAvailable(Image image) {
+
+    }
+
+    @Override
+    public void error(ARErrorType arErrorType, String s) {
 
     }
 
