@@ -2,7 +2,12 @@ package ai.deepar.videocall;
 
 import ai.deepar.ar.ARErrorType;
 import ai.deepar.ar.AREventListener;
+import ai.deepar.ar.CameraResolutionPreset;
 import ai.deepar.ar.DeepAR;
+import ai.deepar.ar.DeepARImageFormat;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import io.agora.rtc.Constants;
 import io.agora.rtc.IRtcEngineEventHandler;
 import io.agora.rtc.RtcEngine;
@@ -10,12 +15,17 @@ import io.agora.rtc.video.VideoCanvas;
 import io.agora.rtc.video.VideoEncoderConfiguration;
 
 import android.Manifest;
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.media.Image;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.DisplayMetrics;
 import android.util.Log;
+import android.util.Size;
+import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,13 +33,31 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
-public class MainActivity extends PermissionsActivity implements AREventListener {
+import com.google.common.util.concurrent.ListenableFuture;
+import androidx.camera.core.*;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.lifecycle.LifecycleOwner;
+import androidx.appcompat.app.AppCompatActivity;
+import ai.deepar.ar.DeepARImageFormat;
+
+public class MainActivity extends AppCompatActivity implements AREventListener {
 
     private static final String TAG = "MainActivity";
-    private CameraGrabber cameraGrabber;
+
+    // Default camera lens value, change to CameraSelector.LENS_FACING_BACK to initialize with back camera
+    private int defaultLensFacing = CameraSelector.LENS_FACING_FRONT;
+    private int lensFacing = defaultLensFacing;
+    private ListenableFuture<ProcessCameraProvider> cameraProviderFuture;
+    private ByteBuffer[] buffers;
+    private int currentBuffer = 0;
+    private static final int NUMBER_OF_BUFFERS=2;
+
     private DeepAR deepAR;
     private GLSurfaceView surfaceView;
     private DeepARRenderer renderer;
@@ -53,39 +81,22 @@ public class MainActivity extends PermissionsActivity implements AREventListener
     @Override
     protected void onStart() {
         super.onStart();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
 
-        checkMultiplePermissions(
-                Arrays.asList(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO, Manifest.permission.BLUETOOTH),
-                "The app needs camera, external storage and record audio permissions",
-                100,
-                new PermissionsActivity.MultiplePermissionsCallback() {
-                    @Override
-                    public void onAllPermissionsGranted() {
-                        setup();
-                    }
+            ActivityCompat.requestPermissions(this, new String[]{ Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO },
+                    1);
+        } else {
+            // Permission has already been granted
+            setup();
+        }
 
-                    @Override
-                    public void onPermissionsDenied(List<String> deniedPermissions) {
-                        Log.d("MainActivity", "Permissions Denied!");
-                    }
-                });
+
     }
 
     void setup() {
-        cameraGrabber = new CameraGrabber();
-        cameraGrabber.initCamera(new CameraGrabberListener() {
-            @Override
-            public void onCameraInitialized() {
-                cameraGrabber.setFrameReceiver(deepAR);
-                cameraGrabber.startPreview();
-            }
-
-            @Override
-            public void onCameraError(String errorMsg) {
-                Log.e("Error", errorMsg);
-            }
-        });
-
+        setupCamera();
         initializeEngine();
         setupVideoConfig();
 
@@ -122,6 +133,151 @@ public class MainActivity extends PermissionsActivity implements AREventListener
         });
     }
 
+    /*
+        get interface orientation from
+        https://stackoverflow.com/questions/10380989/how-do-i-get-the-current-orientation-activityinfo-screen-orientation-of-an-a/10383164
+     */
+    private int getScreenOrientation() {
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        DisplayMetrics dm = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getMetrics(dm);
+        int width = dm.widthPixels;
+        int height = dm.heightPixels;
+        int orientation;
+        // if the device's natural orientation is portrait:
+        if ((rotation == Surface.ROTATION_0
+                || rotation == Surface.ROTATION_180) && height > width ||
+                (rotation == Surface.ROTATION_90
+                        || rotation == Surface.ROTATION_270) && width > height) {
+            switch(rotation) {
+                case Surface.ROTATION_0:
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                    break;
+                case Surface.ROTATION_90:
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                    break;
+                case Surface.ROTATION_180:
+                    orientation =
+                            ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+                    break;
+                case Surface.ROTATION_270:
+                    orientation =
+                            ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+                    break;
+                default:
+                    Log.e(TAG, "Unknown screen orientation. Defaulting to " +
+                            "portrait.");
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                    break;
+            }
+        }
+        // if the device's natural orientation is landscape or if the device
+        // is square:
+        else {
+            switch(rotation) {
+                case Surface.ROTATION_0:
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                    break;
+                case Surface.ROTATION_90:
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                    break;
+                case Surface.ROTATION_180:
+                    orientation =
+                            ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+                    break;
+                case Surface.ROTATION_270:
+                    orientation =
+                            ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+                    break;
+                default:
+                    Log.e(TAG, "Unknown screen orientation. Defaulting to " +
+                            "landscape.");
+                    orientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                    break;
+            }
+        }
+
+        return orientation;
+    }
+
+    private void setupCamera() {
+        cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                    bindImageAnalysis(cameraProvider);
+                } catch (ExecutionException | InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void bindImageAnalysis(@NonNull ProcessCameraProvider cameraProvider) {
+        CameraResolutionPreset cameraPreset = CameraResolutionPreset.P640x480;
+        int width;
+        int height;
+        int orientation = getScreenOrientation();
+        if (orientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE || orientation ==ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE){
+            width = cameraPreset.getWidth();
+            height =  cameraPreset.getHeight();
+        } else {
+            width = cameraPreset.getHeight();
+            height = cameraPreset.getWidth();
+        }
+        buffers = new ByteBuffer[NUMBER_OF_BUFFERS];
+        for (int i = 0; i < NUMBER_OF_BUFFERS; i++) {
+            buffers[i] = ByteBuffer.allocateDirect(width * height * 3);
+            buffers[i].order(ByteOrder.nativeOrder());
+            buffers[i].position(0);
+        }
+
+        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder().setTargetResolution(new Size(width, height)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build();
+        imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), new ImageAnalysis.Analyzer() {
+            @Override
+            public void analyze(@NonNull ImageProxy image) {
+                //image.getImageInfo().getTimestamp();
+                byte[] byteData;
+                ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
+                ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
+                ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
+
+                int ySize = yBuffer.remaining();
+                int uSize = uBuffer.remaining();
+                int vSize = vBuffer.remaining();
+
+                byteData = new byte[ySize + uSize + vSize];
+
+                //U and V are swapped
+                yBuffer.get(byteData, 0, ySize);
+                vBuffer.get(byteData, ySize, vSize);
+                uBuffer.get(byteData, ySize + vSize, uSize);
+
+                buffers[currentBuffer].put(byteData);
+                buffers[currentBuffer].position(0);
+                if(deepAR != null) {
+                    deepAR.receiveFrame(buffers[currentBuffer],
+                            image.getWidth(), image.getHeight(),
+                            image.getImageInfo().getRotationDegrees(),
+                            lensFacing == CameraSelector.LENS_FACING_FRONT,
+                            DeepARImageFormat.YUV_420_888,
+                            image.getPlanes()[1].getPixelStride()
+                    );
+                }
+                currentBuffer = ( currentBuffer + 1 ) % NUMBER_OF_BUFFERS;
+                image.close();
+            }
+        });
+
+        CameraSelector cameraSelector = new CameraSelector.Builder().requireLensFacing(lensFacing).build();
+        cameraProvider.unbindAll();
+        cameraProvider.bindToLifecycle((LifecycleOwner)this, cameraSelector, imageAnalysis);
+
+    }
+
+
     void setRemoteViewWeight(float weight) {
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) remoteViewContainer.getLayoutParams();
         params.weight = weight;
@@ -146,10 +302,15 @@ public class MainActivity extends PermissionsActivity implements AREventListener
 
     @Override
     protected void onStop() {
-        cameraGrabber.setFrameReceiver(null);
-        cameraGrabber.stopPreview();
-        cameraGrabber.releaseCamera();
-        cameraGrabber = null;
+        ProcessCameraProvider cameraProvider = null;
+        try {
+            cameraProvider = cameraProviderFuture.get();
+            cameraProvider.unbindAll();
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         super.onStop();
     }
 
