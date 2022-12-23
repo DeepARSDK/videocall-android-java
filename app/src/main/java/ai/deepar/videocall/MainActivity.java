@@ -1,19 +1,5 @@
 package ai.deepar.videocall;
 
-import ai.deepar.ar.ARErrorType;
-import ai.deepar.ar.AREventListener;
-import ai.deepar.ar.CameraResolutionPreset;
-import ai.deepar.ar.DeepAR;
-import ai.deepar.ar.DeepARImageFormat;
-import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import io.agora.rtc.Constants;
-import io.agora.rtc.IRtcEngineEventHandler;
-import io.agora.rtc.RtcEngine;
-import io.agora.rtc.video.VideoCanvas;
-import io.agora.rtc.video.VideoEncoderConfiguration;
-
 import android.Manifest;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -21,30 +7,42 @@ import android.graphics.Bitmap;
 import android.media.Image;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
-import android.provider.MediaStore;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
 
 import com.google.common.util.concurrent.ListenableFuture;
-import androidx.camera.core.*;
-import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.lifecycle.LifecycleOwner;
-import androidx.appcompat.app.AppCompatActivity;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.concurrent.ExecutionException;
+
+import ai.deepar.ar.ARErrorType;
+import ai.deepar.ar.AREventListener;
+import ai.deepar.ar.CameraResolutionPreset;
+import ai.deepar.ar.DeepAR;
 import ai.deepar.ar.DeepARImageFormat;
+import io.agora.rtc.Constants;
+import io.agora.rtc.IRtcEngineEventHandler;
+import io.agora.rtc.RtcEngine;
+import io.agora.rtc.video.VideoCanvas;
+import io.agora.rtc.video.VideoEncoderConfiguration;
 
 public class MainActivity extends AppCompatActivity implements AREventListener {
 
@@ -55,6 +53,7 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
     private int lensFacing = defaultLensFacing;
     private ListenableFuture<ProcessCameraProvider> cameraProviderFuture;
     private ByteBuffer[] buffers;
+    private int allocatedBufferSize;
     private int currentBuffer = 0;
     private static final int NUMBER_OF_BUFFERS=2;
 
@@ -65,7 +64,6 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
     private boolean callInProgress;
 
     private FrameLayout remoteViewContainer;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -228,19 +226,12 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
             width = cameraPreset.getHeight();
             height = cameraPreset.getWidth();
         }
-        buffers = new ByteBuffer[NUMBER_OF_BUFFERS];
-        for (int i = 0; i < NUMBER_OF_BUFFERS; i++) {
-            buffers[i] = ByteBuffer.allocateDirect(width * height * 3);
-            buffers[i].order(ByteOrder.nativeOrder());
-            buffers[i].position(0);
-        }
 
         ImageAnalysis imageAnalysis = new ImageAnalysis.Builder().setTargetResolution(new Size(width, height)).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build();
         imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), new ImageAnalysis.Analyzer() {
             @Override
             public void analyze(@NonNull ImageProxy image) {
                 //image.getImageInfo().getTimestamp();
-                byte[] byteData;
                 ByteBuffer yBuffer = image.getPlanes()[0].getBuffer();
                 ByteBuffer uBuffer = image.getPlanes()[1].getBuffer();
                 ByteBuffer vBuffer = image.getPlanes()[2].getBuffer();
@@ -249,7 +240,12 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
                 int uSize = uBuffer.remaining();
                 int vSize = vBuffer.remaining();
 
-                byteData = new byte[ySize + uSize + vSize];
+                int imageBufferSize = ySize + uSize + vSize;
+                if (allocatedBufferSize < imageBufferSize) {
+                    initializeBuffers(imageBufferSize);
+                }
+
+                byte[] byteData = new byte[imageBufferSize];
 
                 //U and V are swapped
                 yBuffer.get(byteData, 0, ySize);
@@ -278,6 +274,17 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
 
     }
 
+    private void initializeBuffers(int size) {
+        if (buffers == null) {
+            buffers = new ByteBuffer[NUMBER_OF_BUFFERS];
+        }
+        for (int i = 0; i < NUMBER_OF_BUFFERS; i++) {
+            buffers[i] = ByteBuffer.allocateDirect(size);
+            buffers[i].order(ByteOrder.nativeOrder());
+            buffers[i].position(0);
+        }
+        allocatedBufferSize = size;
+    }
 
     void setRemoteViewWeight(float weight) {
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) remoteViewContainer.getLayoutParams();
