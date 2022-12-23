@@ -399,7 +399,7 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
 
     private void joinChannel() {
         mRtcEngine.setClientRole(Constants.CLIENT_ROLE_BROADCASTER);
-        mRtcEngine.joinChannel(null, "channel", "Extra Optional Data", 0);
+        mRtcEngine.joinChannel("your_agora_token_here", "your_agora_channel_name_here", "Extra Optional Data", 0);
     }
 
     private void setupRemoteVideo(int uid) {
