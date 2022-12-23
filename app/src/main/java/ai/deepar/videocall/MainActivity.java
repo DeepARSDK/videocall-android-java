@@ -104,7 +104,7 @@ public class MainActivity extends AppCompatActivity implements AREventListener {
         surfaceView = new GLSurfaceView(this);
         surfaceView.setEGLContextClientVersion(2);
         surfaceView.setEGLConfigChooser(8,8,8,8,16,0);
-        renderer = new DeepARRenderer(deepAR, mRtcEngine);
+        renderer = new DeepARRenderer(deepAR, mRtcEngine, this);
 
         surfaceView.setEGLContextFactory(new DeepARRenderer.MyContextFactory(renderer));
 

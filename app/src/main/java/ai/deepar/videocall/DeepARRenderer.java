@@ -1,5 +1,6 @@
 package ai.deepar.videocall;
 
+import android.app.Activity;
 import android.graphics.SurfaceTexture;
 import android.opengl.EGL14;
 import android.opengl.GLES11Ext;
@@ -71,6 +72,7 @@ public class DeepARRenderer implements GLSurfaceView.Renderer {
     private SurfaceTexture surfaceTexture;
     private Surface surface;
 
+    private final Activity context;
     private DeepAR deepAR;
     private RtcEngine rtcEngine;
     private boolean updateTexImage;
@@ -84,11 +86,11 @@ public class DeepARRenderer implements GLSurfaceView.Renderer {
 
     float[] matrix = new float[16];
 
-
-    public DeepARRenderer(DeepAR deepAR, RtcEngine rtcEngine) {
+    public DeepARRenderer(DeepAR deepAR, RtcEngine rtcEngine, Activity context) {
         this.updateTexImage = false;
         this.deepAR = deepAR;
         this.rtcEngine = rtcEngine;
+        this.context = context;
     }
 
     public static int loadShader(int type, String shaderCode){
@@ -162,8 +164,7 @@ public class DeepARRenderer implements GLSurfaceView.Renderer {
             }
         });
 
-
-        deepAR.setRenderSurface(surface, textureWidth, textureHeight);
+        context.runOnUiThread(() -> deepAR.setRenderSurface(surface, textureWidth, textureHeight));
     }
 
     @Override
